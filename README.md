@@ -2,6 +2,10 @@
 
 This project is an exploratory text mining analysis on Hans Christian Andersen's *The Little Mermaid*. 
 
+## The Data
+
+This project uses a PDF of the original short story *The Little Mermaid*, which was made public through Global Grey Publishing.
+
 ## Technologies
 
 Completed in R, the following packages are used
