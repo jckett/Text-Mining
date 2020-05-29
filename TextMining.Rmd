@@ -1,0 +1,406 @@
+---
+title: "Text Analysis"
+author: "Joi Chu-Ketterer"
+date: "May 28, 2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(pdftools)
+library(tm)
+library(stringr) #let's me extract the substrings
+library("qdapRegex") # let's me extract quotations
+library("dplyr") #need for arrange and for inner join
+library("tidytext") #for ngrams and lexicons
+library("tidyverse") #for separate()
+```
+
+Reading in the PDF file and checking page count
+```{r}
+text <- pdf_text('tlm.pdf')
+pdf_info("tlm.pdf")$pages
+```
+
+Cleaning out punctuation
+```{r}
+text2 <- gsub('\n',' ',text)
+text3 <- gsub('[[:punct:] ]+',' ',text2)
+text3 <- tolower(text3)
+```
+
+1 ----- Punctuation Frequency
+
+Extracting punctuation and saving as dataframe
+```{r}
+punct <- gsub('[0-9]+', ' ', text2)
+punct <- tolower(punct)
+punct <- gsub("[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, -]", " ", punct)
+punct <- strsplit(punct, " ")
+
+punct_table <- table(unlist(punct))
+
+punct_df <- as.data.frame(punct_table)
+punct_df <- punct_df[punct_df$Var1!="",]
+```
+
+Cleaning dataframe and distributing counts correctly
+```{r}
+punct_df_clean <- punct_df %>%
+    mutate(Freq = case_when(
+      Var1 == '—"' ~ Freq + 0,
+      Var1 == ';' ~ Freq + 2,
+      Var1 == ';"' ~ Freq + 0,
+      Var1 == ':' ~ Freq + 0,
+      Var1 == '!' ~ Freq + 1,
+      Var1 == '!"' ~ Freq + 0,
+      Var1 == '?' ~ Freq + 6,
+      Var1 == '?"' ~ Freq + 0,
+      Var1 == '.' ~ Freq + 21,
+      Var1 == '."' ~ Freq + 0,
+      Var1 == "'" ~ Freq + 0,
+      Var1 == '"' ~ Freq + 40
+    ))
+```
+
+Removing unecessary rows and writing as a csv file
+```{r}
+punct_df_clean = punct_df_clean[-c(1,3,6,8,10),]
+names(punct_df_clean) <- c("punctuation", "count")
+
+punct_df_clean$percent <- (punct_df_clean$count/sum(punct_df_clean$count))*100
+
+write.csv(punct_df_clean, "punctuation_percent.csv", row.names = FALSE)
+```
+
+2 ----- QUOTE RATIO
+
+Extracting quotes
+```{r}
+#using text since that still has the punctuation 
+quotes <- vector(mode = "list", length = 1)
+
+quote <- rm_between(text, '"', '"', extract=TRUE)
+
+for (i in quote)
+{ quotes <- c(quotes, i)
+  
+}
+
+#final list of all quotes
+quotes = unlist(quotes)
+```
+
+Saving as dataframe
+```{r}
+quote_df <- data.frame(quotes = unlist(quotes))
+quote_df_clean <- dplyr::filter(quote_df,  !is.na(quotes))
+```
+
+Cleaning dataframe
+```{r}
+for (i in quote_df_clean){
+  i <- gsub('[[:punct:] ]+',' ', i)
+}
+
+quote_df_clean$quotes <- sapply(quote_df_clean$quotes, function(x) gsub('[[:punct:] ]+',' ', x))
+
+quote_df_clean$quotes <- sapply(quote_df_clean$quotes, function(x) gsub('\n',' ', x))
+```
+
+Calculates word count per quote, and finds sum
+```{r}
+quote_df_clean$count <- sapply(quote_df_clean$quotes, function(x) length(unlist(strsplit(as.character(x), " "))))
+
+sum(quote_df_clean$count)
+```
+
+number of words in a quote: 1849
+number of words in total: 9251 (discovered later)
+
+Saving quote ratio dataframe
+```{r}
+type <- c("Quote", "Total")
+count <- c(1849, 9251)
+quote_ratio <- data.frame(type, count)
+
+quote_ratio$percentage <- (quote_ratio$count/sum(quote_ratio$count))*100
+
+write.csv(quote_ratio, "quote_ratio.csv", row.names = FALSE)
+```
+
+3 ----- SENTENCE LENGTH
+
+Extracting sentences and saving as a dataframe
+```{r}
+sentence <- unlist(strsplit(text, '\\.'))
+sentence_df <- data.frame(sentence)
+sentence_df_clean <- dplyr::filter(sentence_df,  !is.na(sentence))
+```
+
+Cleaning the sentence dataframe
+```{r}
+for (i in sentence_df_clean){
+  i <- gsub('[[:punct:] ]+',' ', i)
+}
+
+sentence_df_clean$sentence <- sapply(sentence_df_clean$sentence, function(x) gsub('[[:punct:] ]+',' ', x))
+
+sentence_df_clean$sentence <- sapply(sentence_df_clean$sentence, function(x) gsub('\n',' ', x))
+
+sentence_df_clean$sentence <- gsub('[0-9]+', '', sentence_df_clean$sentence)
+
+sentence_df_clean[1,1] <-sapply(sentence_df_clean[1,1], function(x) gsub('THE LITTLE MERMAID','', x))
+```
+
+Calculates word count
+```{r}
+sentence_df_clean$count <- sapply(sentence_df_clean$sentence, function(x) length(unlist(strsplit(as.character(x), " "))))
+sentence_df_clean <- sentence_df_clean[sentence_df_clean$sentence!=" ",]
+```
+
+Saving as CSV for external visualization tools
+```{r}
+write.csv(sentence_df_clean, "sentence_df_clean.csv", row.names = FALSE)
+```
+
+4 ----- WORD FREQUENCY
+
+Extracts individual words and creates table
+```{r}
+words <- strsplit(text3, " ")
+
+freq <- table(unlist(words))
+```
+
+Saves table as a dataframe and calcultes sum
+```{r}
+count <- cbind(names(freq),as.numeric(freq))
+word_count <- as.data.frame(count)
+names(word_count) <- c("Word", 'Count')
+word_count$Word <- levels(word_count$Word)[word_count$Word]
+word_count$Word <- gsub('[0-9]+', '', word_count$Word)
+word_count <- word_count[word_count$Word!="",]
+   
+word_count$Count <- levels(word_count$Count)[word_count$Count]
+word_count$Count <- as.numeric(word_count$Count)
+
+sum(word_count$Count)
+```
+
+Removing stop words for dynamic visualization
+```{r}
+nostop <- removeWords(text3, stopwords("en"))
+```
+
+Cleans and calculates frequency
+```{r}
+words_nostop <- strsplit(nostop, " ") 
+table_nostop <- table(unlist(words_nostop))
+
+count_nostop <- cbind(names(table_nostop),as.numeric(table_nostop))
+count_nostop <- as.data.frame(count_nostop)
+names(count_nostop) <- c("Word", 'Count')
+count_nostop$Word <- levels(count_nostop$Word)[count_nostop$Word]
+count_nostop$Word <- gsub('[0-9]+', '', count_nostop$Word)
+count_nostop <- count_nostop[count_nostop$Word!="",]
+count_nostop <- count_nostop[count_nostop$Word!="s",]
+   
+count_nostop$Count <-levels(count_nostop$Count)[count_nostop$Count]
+count_nostop$Count <- as.numeric(count_nostop$Count)
+```
+
+Displays word counts in descending order
+```{r}
+count_nostop_sorted <- arrange(count_nostop, desc(Count))
+```
+  
+Graph 1 - recreated in Tableau
+```{r}
+pdf("words_top_ten.pdf")
+
+top_n(count_nostop_sorted, n=10, Count) %>%
+        ggplot(aes(x = reorder(Word, Count), Count)) +
+        geom_bar(stat="identity", fill="lightseagreen") + coord_flip() + scale_y_continuous(expand = c(0,0), limits = c(0,70)) + labs(title = "Word Count", subtitle = expression(paste("top ten words used in ", italic("The Little Mermaid"))), x = " ", y = "") + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "white")) + theme(axis.ticks = element_blank())
+
+dev.off()
+```
+
+Saves top ten words as CSV for external visualization
+```{r}
+top_ten_df <- top_n(count_nostop_sorted, n=10, Count)
+
+write.csv(top_ten_df, "top_ten_df.csv", row.names = FALSE)
+```
+
+Graph 2 - recreated in Tableau
+```{r}
+pdf( "words_more_than_ten.pdf")
+
+subset(count_nostop_sorted, Count>10)  %>%
+ggplot(aes(x = reorder(Word, Count), Count)) + geom_bar(stat="identity", fill="lightseagreen") + coord_flip() + scale_y_continuous(expand = c(0,0), limits = c(0,70)) + labs(title = "Word Count", subtitle = expression(paste("words used more than ten times in ", italic("The Little Mermaid"))), x = " ", y = "") + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_rect(fill = "transparent",colour = NA),plot.background = element_rect(fill = "transparent",colour = NA), axis.line = element_line(colour = "white")) + theme(axis.ticks = element_blank())
+
+dev.off()
+```
+
+Saves words used more than ten times as CSV for external visualization
+```{r}
+more_ten_df <- subset(count_nostop_sorted, Count>10)
+
+write.csv(more_ten_df, "more_ten_df.csv", row.names = FALSE)
+```
+
+5 ----- SENTIMENT ANALYSIS
+
+Finds sentiment for each word
+
+```{r}
+bing <- get_sentiments("bing")
+
+sentiment <- inner_join(count_nostop_sorted, bing, by = c('Word' = 'word'))
+
+names(sentiment) <- c("Text", 'Count', "Sentiment")
+sentiment <- arrange(sentiment, desc(Count))
+```
+
+Calculating sentiment weight
+```{r}
+sentiment_weight <- sentiment %>%
+  count(Text, Sentiment, wt = Count) %>%
+  spread(Sentiment, n, fill = 0) %>%
+  mutate(Sentiment = positive - negative) %>%
+  arrange(Sentiment)
+
+sentiment_weight <- sentiment_weight %>%
+  count(Sentiment, Text, wt = Sentiment)
+```
+
+Graph 3 - sentiment contribution for words used more than five times
+```{r}
+sentiment_weight %>%
+  count(Sentiment, Text, wt = Sentiment) %>%
+  filter(abs(n) >= 5) %>%
+  mutate(Text = reorder(Text, n)) %>%
+  ggplot(aes(Text, Sentiment, fill = n)) +
+  geom_bar(stat = "identity") +
+    labs(x = NULL, y = NULL, title = "Sentiment Contribution", 
+         subtitle = expression(paste("by word counts greater than five in ", italic("The Little Mermaid")))) +
+  scale_fill_gradient2(low='#6276bc', mid='#cbe9e2', high='#98d3c6', space='Lab', name = "Contribution")+ theme_classic() + theme(axis.text.x = element_text(angle = 90, hjust = 1), panel.background = element_rect(fill = "transparent",colour = NA),plot.background = element_rect(fill = "transparent",colour = NA), legend.key = element_blank())
+
+ggsave("sentiment_contribution.png", bg = "transparent")
+```
+
+Calculating overall sentiment count and relative percentage and saving as dataframe
+```{r}
+overall_sentiment <- data.frame(table(sentiment$Sentiment))
+names(overall_sentiment) <- c("Sentiment", 'Count')
+overall_sentiment$Percent <- (overall_sentiment$Count / sum(overall_sentiment$Count)) *100
+```
+
+Calculating attributes for donut graph
+```{r}
+overall_sentiment$ymax <- cumsum(overall_sentiment$Percent)
+overall_sentiment$ymin <- c(0, head(overall_sentiment$ymax, n=-1))
+overall_sentiment$labelPosition <- (overall_sentiment$ymax + overall_sentiment$ymin) / 2
+
+overall_sentiment$label <- paste(overall_sentiment$Sentiment, "\n",overall_sentiment$Percent,'%')
+```
+
+Graph 4 - break down of negative and positive sentiment by word
+```{r}
+pdf("testing.pdf")
+
+mycolors <- c("#623d4f", "#4f623d")
+            
+ggplot(overall_sentiment, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=Sentiment)) +
+  geom_rect() +
+  geom_text( x=2, aes(y=labelPosition, label=label, color=Sentiment), size=6) + 
+  coord_polar(theta="y") +
+  scale_fill_manual(values = mycolors) +
+  scale_color_manual(values = mycolors) +
+  xlim(c(-1, 4)) +
+  theme_void() +
+  theme(legend.position = "none") + labs(title = "Sentiment Breakdown", subtitle = expression(paste(italic("The Little Mermaid "), "is generally a positive story")))
+
+dev.off()
+```
+
+6 ----- GENDER ANALYSIS
+
+Saving text3 as a dataframe 
+```{r}
+text_df <- as.data.frame(text3)
+text_df$text3 <- gsub('[0-9]+', '', text_df$text3)
+names(text_df) <- c("Text")
+```
+
+Tokenizing words into bigrams 
+```{r}
+tokenized <- text_df %>% 
+  unnest_tokens(word, Text, token = "ngrams", n=2)
+```
+
+Filtering bigrams by leading word that start with "she" or "he"
+```{r}
+pronouns <- c("he", "she")
+
+bigram_counts <- tokenized %>%
+  count(word, sort = TRUE) %>%
+  separate(word, c("word1", "word2"), sep = " ") %>%
+  filter(word1 %in% pronouns) %>%
+  #n is the count, how many times it appears in the text
+  count(word1, word2, wt = n, sort = TRUE)
+```
+
+Calculating leading gender counts
+```{r}
+leading_counts <- as.data.frame(sum(bigram_counts$n, bigram_counts$word1 == "she"))
+names(leading_counts) <- c("she")
+leading_counts$he <- sum(bigram_counts$n, bigram_counts$word1 == "he")
+```
+
+Calculating leading gender ratios
+```{r}
+ratios <- bigram_counts %>%
+    group_by(word2) %>%
+    filter(sum(n) > 3) %>%
+    ungroup() %>%
+    spread(word1, n, fill = 0) %>%
+    #calculates the ratio, adding 1 since some of the counts are 0
+    mutate_if(is.numeric, list(~(. + 1) / sum(. + 1))) %>%
+    mutate(logratio = log2(she / he)) %>%
+    arrange(desc(logratio))  
+```
+
+Graph 5 - ratio frequency of words following she and he
+```{r}
+ratios %>%
+    mutate(abslogratio = abs(logratio)) %>%
+    group_by(logratio < 0) %>%
+    top_n(15, abslogratio) %>%
+    ungroup() %>%
+    mutate(word = reorder(word2, logratio)) %>%
+    ggplot(aes(word, logratio, color = logratio < 0)) +
+    geom_segment(aes(x = word, xend = word,
+                     y = 0, yend = logratio), 
+                 size = 2, alpha = 0.6) +
+    geom_point(size = 0) +
+    coord_flip() +
+    labs(x = NULL, y = NULL, title = "Bigram Frequency", subtitle = expression(paste("Trailing words paired with 'he' and 'she' in ", italic("The Little Mermaid")))) +
+    scale_color_discrete(name = "", labels = c("More 'she'", "More 'he'")) +
+    scale_y_continuous(breaks = seq(-3, 3),
+                       labels = c("0.125x", "0.25x", "0.5x", 
+                                  "Same", "2x", "4x", "8x")) + theme_classic() + theme(panel.background = element_rect(fill = "transparent",colour = NA),plot.background = element_rect(fill = "transparent",colour = NA), legend.key = element_blank()) 
+
+ggsave("gender_analysis.png", bg = "transparent")
+```
+
+
+
+
+```{r}
